@@ -99,7 +99,7 @@ if __name__ == "__main__":
         try:
             with open(sys.argv[2], mode="r", encoding="utf-8") as input:
                 domains_ips = input.readlines()
-                with futures.ThreadPoolExecutor(max_workers=30) as executor:
+                with futures.ThreadPoolExecutor(max_workers=100) as executor:
                     executor.map(process_input, domains_ips)
 
         except FileNotFoundError:
