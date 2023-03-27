@@ -4,6 +4,7 @@
 import socket
 import sys
 from concurrent import futures
+import os
 
 
 def categorize_input(item: str) -> int:
@@ -64,15 +65,29 @@ def append_to_file(file_name: str, item: str) -> None:
         file.write(f"{item}\n")
 
 
+def private_ip(ip: str) -> bool:
+    octets = ip.split(".")
+    first_octet = int(octets[0])
+    second_octet = int(octets[1])
+    if ((192 == first_octet) and (168 == second_octet)):
+        return True
+    elif (10 == first_octet):
+        return True
+    elif ((172 == first_octet) and (16 <= second_octet) and (second_octet <= 31)):
+        return True
+
+    return False
+
+
 def process_input(item: str) -> None:
     item = item.replace("\n", "")
     category_id = categorize_input(item)
-    if (category_id == 4):      # IPv4
+    if ((category_id == 4) and (not private_ip(item))):      # IPv4
         ports = [443, 80]
         for port in ports:
             telnet_result = telnet(item, port, 10)
             if (telnet_result == 1):
-                append_to_file("valid_ips_domains.txt", item)
+                append_to_file("valid_ipv4.txt", item)
                 break
             if (telnet_result == -1):
                 print(
@@ -80,23 +95,32 @@ def process_input(item: str) -> None:
                 append_to_file("need_more_attention.txt", item)
             if (port == 80 and telnet_result == 0):
                 print(f"{item} is NULL!")
-                append_to_file("invalid_ips_domains.txt", item)
+                append_to_file("invalid_ipv4.txt", item)
 
     elif (category_id == 1):       # Domain
         ip_list = nslookup(item)
         if (ip_list):
-            append_to_file("valid_ips_domains.txt", item)
+            append_to_file("valid_domains.txt", item)
             for ip in ip_list:
-                append_to_file("valid_ips_domains.txt", ip)
+                ip_type = categorize_input(ip)
+                if ((ip_type == 4) and (not private_ip(item))):
+                    append_to_file("valid_ipv4.txt", ip)
+                elif (ip_type == 6):
+                    append_to_file("valid_ipv6.txt", ip)
         else:
             print(f"{item} is null!")
-            append_to_file("invalid_ips_domains.txt", item)
+            append_to_file("invalid_domains.txt", item)
 
 
 if __name__ == "__main__":
     command_len = len(sys.argv)
     if ("-i" in sys.argv and command_len == 3):
         try:
+            file_names = ["valid_ipv4.txt", "invalid_ipv4.txt", "valid_domains.txt",
+                          "invalid_domains.txt", "valid_ipv6.txt", "invalid_ipv6.txt", "need_more_attention.txt"]
+            for file_name in file_names:
+                if (os.path.exists(file_name)):
+                    os.remove(file_name)
             with open(sys.argv[2], mode="r", encoding="utf-8") as input:
                 domains_ips = input.readlines()
                 with futures.ThreadPoolExecutor(max_workers=100) as executor:
