@@ -128,9 +128,13 @@ if __name__ == "__main__":
                 domains_ips = input.readlines()
                 with futures.ThreadPoolExecutor(max_workers=100) as executor:
                     executor.map(process_input, domains_ips)
-            # remove the first newline in each output file
-            # for file_name in file_names:
-            #     if (os.path.exists(file_name)):
+            # remove the first newline character in each output file
+            for file_name in file_names:
+                if (os.path.exists(file_name)):
+                    with open(file_name, mode="r", encoding="utf-8") as old_f:
+                        data = old_f.readlines()
+                    with open(file_name, mode="w", encoding="utf-8") as new_f:
+                        new_f.writelines(data[1:])
 
         except FileNotFoundError:
             print(f"{sys.argv[2]} doesn't exist!")
