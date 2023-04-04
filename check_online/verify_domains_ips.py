@@ -1,5 +1,5 @@
 # This tool will check whether a domain or an IP is still working or not
-# In Windows, type "python online_offline.py -i "C:/path/to/input" to run
+# In Windows, type "python verify_domains_ips.py -i "C:/path/to/input" to run
 
 import socket
 import sys
@@ -43,7 +43,7 @@ def telnet(host: str, port: int, timeout: int) -> int:
         socket.create_connection((host, port), timeout)
         return 1
     except socket.timeout:
-        if (timeout == 100):
+        if (timeout == 200):
             return 0
         else:
             outer_result = telnet(host, port, timeout*10)
@@ -61,8 +61,11 @@ def telnet(host: str, port: int, timeout: int) -> int:
 
 
 def append_to_file(file_name: str, item: str) -> None:
-    with open(file_name, mode="a", encoding="utf-16") as file:
-        file.write(f"{item}\n")
+    with open(file_name, mode="a", encoding="utf-8") as file:
+        # use utf-8 or utf-16le or utf-16be to prevent Python from adding "\ufeff" to the beginning of a string while writing to file. (encode without BOM)
+        # refer to this for more info: https://stackoverflow.com/questions/17912307/u-ufeff-in-python-string
+        file.write(f"\n{item}")
+        # Place newline character at the beginning of the string to avoid trailing newlines
 
 
 def private_ip(ip: str) -> bool:
@@ -85,7 +88,7 @@ def process_input(item: str) -> None:
     if ((category_id == 4) and (not private_ip(item))):      # IPv4
         ports = [443, 80]
         for port in ports:
-            telnet_result = telnet(item, port, 10)
+            telnet_result = telnet(item, port, 20)
             if (telnet_result == 1):
                 append_to_file("valid_ipv4.txt", item)
                 break
@@ -125,6 +128,9 @@ if __name__ == "__main__":
                 domains_ips = input.readlines()
                 with futures.ThreadPoolExecutor(max_workers=100) as executor:
                     executor.map(process_input, domains_ips)
+            # remove the first newline in each output file
+            # for file_name in file_names:
+            #     if (os.path.exists(file_name)):
 
         except FileNotFoundError:
             print(f"{sys.argv[2]} doesn't exist!")
