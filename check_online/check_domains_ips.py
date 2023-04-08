@@ -1,10 +1,27 @@
 # This tool will check whether a domain or an IP is still working or not
-# In Windows, type "python verify_domains_ips.py -i "C:/path/to/input" to run
+# In Windows, type "python check_domains_ips.py -i "C:/path/to/input" to run
 
 import socket
 import sys
 from concurrent import futures
 import os
+
+
+output = {
+    "ipv4": "",
+    "ipv6": "",
+    "domains": "",
+    "null_ipv4": "",
+    "null_ipv6": "",
+    "null_domains": "",
+    "error": ""
+}
+
+current_dir = os.getcwd()
+output_folder = "output"
+output_dir = os.path.join(current_dir, output_folder)
+if (not os.path.exists(output_dir)):
+    os.mkdir(output_dir)
 
 
 def categorize_input(item: str) -> int:
@@ -60,14 +77,6 @@ def telnet(host: str, port: int, timeout: int) -> int:
         return -1
 
 
-def append_to_file(file_name: str, item: str) -> None:
-    with open(file_name, mode="a", encoding="utf-8") as file:
-        # use utf-8 or utf-16le or utf-16be to prevent Python from adding "\ufeff" to the beginning of a string while writing to file. (encode without BOM)
-        # refer to this for more info: https://stackoverflow.com/questions/17912307/u-ufeff-in-python-string
-        file.write(f"\n{item}")
-        # Place newline character at the beginning of the string to avoid trailing newlines
-
-
 def private_ip(ip: str) -> bool:
     octets = ip.split(".")
     first_octet = int(octets[0])
@@ -83,58 +92,74 @@ def private_ip(ip: str) -> bool:
 
 
 def process_input(item: str) -> None:
+    global output
     item = item.replace("\n", "")
+    # one function to check for special character in input
     category_id = categorize_input(item)
     if ((category_id == 4) and (not private_ip(item))):      # IPv4
         ports = [443, 80]
         for port in ports:
             telnet_result = telnet(item, port, 20)
             if (telnet_result == 1):
-                append_to_file("valid_ipv4.txt", item)
+                if (item not in output["ipv4"]):
+                    output["ipv4"] = output["ipv4"] + '\n' + item
                 break
             if (telnet_result == -1):
                 print(
                     f"An error happened while examining {item}. Please pay more attention to this IP address.")
-                append_to_file("need_more_attention.txt", item)
+                if (item not in output["error"]):
+                    output["error"] = output["error"] + '\n' + item
             if (port == 80 and telnet_result == 0):
                 print(f"{item} is NULL!")
-                append_to_file("invalid_ipv4.txt", item)
+                if (item not in output["null_ipv4"]):
+                    output["null_ipv4"] = output["null_ipv4"] + '\n' + item
 
     elif (category_id == 1):       # Domain
         ip_list = nslookup(item)
         if (ip_list):
-            append_to_file("valid_domains.txt", item)
+            if (item not in output["domains"]):
+                output["domains"] = output["domains"] + '\n' + item
             for ip in ip_list:
                 ip_type = categorize_input(ip)
-                if ((ip_type == 4) and (not private_ip(item))):
-                    append_to_file("valid_ipv4.txt", ip)
+                if ((ip_type == 4) and (not private_ip(ip))):
+                    if (ip not in output["ipv4"]):
+                        output["ipv4"] = output["ipv4"] + '\n' + ip
+
                 elif (ip_type == 6):
-                    append_to_file("valid_ipv6.txt", ip)
+                    if (ip not in output["ipv6"]):
+                        output["ipv6"] = output["ipv6"] + '\n' + ip
+
         else:
             print(f"{item} is null!")
-            append_to_file("invalid_domains.txt", item)
+            if (item not in output["null_domains"]):
+                output["null_domains"] = output["null_domains"] + '\n' + item
 
 
 if __name__ == "__main__":
     command_len = len(sys.argv)
     if ("-i" in sys.argv and command_len == 3):
         try:
-            file_names = ["valid_ipv4.txt", "invalid_ipv4.txt", "valid_domains.txt",
-                          "invalid_domains.txt", "valid_ipv6.txt", "invalid_ipv6.txt", "need_more_attention.txt"]
-            for file_name in file_names:
-                if (os.path.exists(file_name)):
-                    os.remove(file_name)
             with open(sys.argv[2], mode="r", encoding="utf-8") as input:
                 domains_ips = input.readlines()
                 with futures.ThreadPoolExecutor(max_workers=100) as executor:
                     executor.map(process_input, domains_ips)
             # remove the first newline character in each output file
-            for file_name in file_names:
-                if (os.path.exists(file_name)):
-                    with open(file_name, mode="r", encoding="utf-8") as old_f:
-                        data = old_f.readlines()
-                    with open(file_name, mode="w", encoding="utf-8") as new_f:
-                        new_f.writelines(data[1:])
+            for key, value in output.items():
+                newline_at_beginning = False
+                for character in value:
+                    if character == "\n":
+                        newline_at_beginning = True
+                        break
+
+                if (newline_at_beginning):
+                    output[key] = value[1:]
+
+            for key, value in output.items():
+                if (value != ''):
+                    if ("\n\n" in value):
+                        output[key] = output[key].replace("\n\n", "\n")
+                    with open(f'{output_dir}\\{key}.txt', mode="w") as output:
+                        output.write(value)
 
         except FileNotFoundError:
             print(f"{sys.argv[2]} doesn't exist!")
