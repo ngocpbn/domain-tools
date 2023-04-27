@@ -4,7 +4,16 @@ from datetime import datetime
 import psycopg2
 # import threading
 import sys
+import os
 
+
+output_files = []
+
+current_dir = os.getcwd()
+output_folder = "output"
+output_dir = os.path.join(current_dir, output_folder)
+if (not os.path.exists(output_dir)):
+    os.mkdir(output_dir)
 
 connection = psycopg2.connect(database="ncsc",
                               host="127.0.0.1",
@@ -16,46 +25,42 @@ cur = connection.cursor()
 conf = {
     'user_name': 'scs_openapi',
     'password': 'yqTd7HbBhkryzMAP',
-    'api_key': 'mboz8Q3FioCoE6RjoD8t',
+    'api_key': 'bee4a797-e868-4f1c-b7d9-60dc8b87cbef',
     'delta': 0,
-    'url': 'https://openapi.ncsc.gov.vn/phishing/query'
+    'url': "https://openapi.ncsc.gov.vn/phishing/query"
 }
 
 
-def request_ncsc(page: int, delta=conf['delta']) -> dict | None:
-    response = requests.get(url=f'{conf["url"]}?api_key={conf["api_key"]}&page={page}&delta_day={delta}',
-                            auth=(conf["user_name"], conf["password"]))
+def request_ncsc(delta=conf['delta']) -> dict | None:
+    response = requests.get(
+        url=f'{conf["url"]}?api_key={conf["api_key"]}&delta_day={delta}',
+        auth=(
+            conf["user_name"],
+            conf["password"]
+        )
+    )
+    # API url will look like this: https://openapi.ncsc.gov.vn/phishing/query?api_key=bee4a797-e868-4f1c-b7d9-60dc8b87cbef&delta_day=1
+
     if response.status_code == 200:
         response_text = json.loads(response.text)
-        if (response_text == f"Cannot found page {page}"):
-            print(f"Page {page} of day {delta} doesn't have data.")
+        if (response_text == []):
+            print(f"Day {delta} doesn't have data.")
             return None
         else:
             return response_text
     else:
+        print(f"Status code {response.status_code}")
         return None
+    # OLD API URL: https://openapi.ncsc.gov.vn/phishing/query?api_key=mboz8Q3FioCoE6RjoD8t&page=1&delta_day=10
 
 
-def process_data_and_upsert(records: list[dict]):
+def process_data_and_upsert(records: list[dict]) -> None:
     for record in records:
-        url = record.get('url')
-        if url == None:
-            url = record.get('domain')
-
-        url = url.replace('www.', '').replace(
-            'http://', '').replace('https://', '')
-        substrings = url.split('/')
-        if '' in substrings:
-            substrings.remove('')
-
-        if (len(substrings) > 1):
-            continue
-        else:
-            url = url.replace('/', '')
-            timestamp = str(datetime.now()).split(".")[0]
-            cur.execute("""INSERT INTO data (
+        domain = record.get('domain')
+        timestamp = str(datetime.now()).split(".")[0]
+        cur.execute("""INSERT INTO data (
                         timestamps, 
-                        url, 
+                        domain, 
                         ip, 
                         tags, 
                         confident_level, 
@@ -66,62 +71,67 @@ def process_data_and_upsert(records: list[dict]):
                         last_updated
                         ) 
                         VALUES (%s, %s, %s, %s, %s,%s, %s, %s, %s, %s) 
-                        ON CONFLICT (url) DO NOTHING""",
-                        (timestamp, url, record.get('ip'), record.get('tags'), record.get('confident_level'), record.get('verified'), record.get(
-                            'online'), record.get('data_source'), record.get('created_at'), record.get('last_updated'))
-                        )
+                        ON CONFLICT (domain) DO NOTHING""",
+                    (timestamp, domain, record.get('ip'), record.get('tags'), record.get('confident_level'), record.get(
+                        'verified'), record.get('online'), record.get('data_source'), record.get('created_at'), record.get('last_updated'))
+                    )
 
-            connection.commit()
+        connection.commit()
 
-            today = timestamp.split(" ")[0]
-            cur.execute(
-                "select timestamps, url, tags from data where timestamps like %s", (today,))
-            urls_and_tags = cur.fetchall()
-            print(urls_and_tags)
-            for row in urls_and_tags:
-                domain = row[1]
-                tags = row[2].replace("{", "").replace("}", "").replace(
-                    "[", '').replace(']', '').replace("'", "").replace(" ", "_").replace('"', '')
-                tags = tags.split(",")
-                # The first tag in the list of tags will be chosen as the name of the record file
-                file_name = tags[0]
+        # Update the record file
+        today = timestamp.split(" ")[0]
+        query = "select timestamps, domain, tags from data where timestamps like '" + today + "%'"
+        cur.execute(query)
+        domains_and_tags = cur.fetchall()
+        for row in domains_and_tags:
+            domain = row[1]
+            tags = row[2].replace("{", "").replace("}", "").replace(
+                "[", '').replace(']', '').replace("'", "").replace(" ", "_").replace('"', '')
+            tags = tags.split(",")
+            # The first tag in the list of tags will be chosen as the name of the record file
+            file_name = tags[0]
 
-                with open(f"C:\\Users\\Admin\\Desktop\\Work\\record\\{file_name}.txt", mode='a', encoding='utf-16') as record_file:
-                    print(f"Appending to {file_name}.txt")
-                    record_file.write(
-                        f"{domain}      IN             CNAME       canhbao.safegate.vn.\n")
-                    record_file.write(
-                        f"www.{domain}      IN             CNAME       canhbao.safegate.vn.\n")
+            output_file = f'{output_dir}\\{file_name}.txt'
+            if (not os.path.exists(output_file)):
+                with open(output_file, mode='a') as record_file:
+                    record_file.write("$TTL 1D\n@       IN      SOA     spoof.safegate.vn. safegate.vn. (\n                        2023011101      ; serial\n                        3H              ; refresh\n                        1H              ; retry\n                        3D              ; expire\n                        1H              ; minimum\n                        )\n@       IN              NS              localhost.\n\n")
+
+            with open(output_file, mode='a') as record_file:
+                record_file.write(
+                    f"{domain}      IN             CNAME       canhbao.safegate.vn.\n")
+                record_file.write(
+                    f"www.{domain}      IN             CNAME       canhbao.safegate.vn.\n")
+
+            if (file_name not in output_files):
+                output_files.append(file_name)
 
 
-def main(start: int, end: int, initial_page: "int" = 1):
+def main(start: int, end: int) -> None:
     for day in range(int(start), int(end) + 1):
-        first_request = request_ncsc(initial_page, day)
-        # first_request will look like this
-        # first_request = {
-        #     'records': [
-        #         {'url': 'https://vaytienhoatoc247.com/', 'ip': '104.21.28.213', 'tags': ['scam'], 'confident_level': 'high', 'verified': True, 'online': True, 'data_source': 'Chong lua dao', 'created_at': '09-02-2023 01:16:48', 'last_updated': '09-02-2023 01:16:48'},
-        #           ...
-        #             ],
-        #     'record_count': 180,
-        #     'meta': {
-        #         'total_pages': 2,
-        #         'page': 1
-        #         }
-        # }
+        api_request = request_ncsc(day)
+        # api_request = [
+        #     {
+        #         "url": "https://sinhvientainangnam2021.weebly.com",
+        #         "domain": "sinhvientainangnam2021.weebly.com",
+        #         "online": false,
+        #         "ip": null,
+        #         "tags": [
+        #             "phishing"
+        #         ],
+        #         "target_brand": "Facebook",
+        #         "verified": true,
+        #         "confident": "high",
+        #         "source": "Tin Nhiem Mang",
+        #         "created": "2021-08-22 00:00:00",
+        #         "updated": "2023-04-27 09:17:08"
+        #     },
+        #     .......
+        # ]
 
-        if (first_request is not None):
-            process_data_and_upsert(first_request.get(
-                'records'))          # process data here
+        if (api_request is not None):
             timestamp = str(datetime.now()).split(".")[0]
-            print(f"{timestamp}: done with day {day}, page {initial_page}")
-            total_pages = first_request.get('meta').get('total_pages')
-
-            for page in range(int(initial_page) + 1, total_pages+1):
-                another_request = request_ncsc(page, day)
-                process_data_and_upsert(another_request.get('records'))
-                timestamp = str(datetime.now()).split(".")[0]
-                print(f"{timestamp}: done with day {day}, page {page}.")
+            print(f"{timestamp}: Day {day}")
+            process_data_and_upsert(api_request)
 
 
 if __name__ == "__main__":
@@ -135,10 +145,10 @@ if __name__ == "__main__":
         if flag == '-e' or flag == '--end':
             args.append(sys.argv[i+1])
 
-        if flag == '-p' or flag == '--page':
-            args.append(sys.argv[i+1])
-
-    if len(args) == 3:
-        main(start=args[0], end=args[1], initial_page=args[2])
-    else:
+    if len(args) == 2:
         main(start=args[0], end=args[1])
+        print(f"Updated these below files:")
+        for file in output_files:
+            print(file)
+    else:
+        print("Please include both starting and ending day!")
