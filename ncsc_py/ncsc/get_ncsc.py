@@ -2,18 +2,20 @@ import requests
 import json
 from datetime import datetime
 import psycopg2
-# import threading
 import sys
 import os
+from pathlib import Path
 
-
-output_files = []
 
 current_dir = os.getcwd()
 output_folder = "output"
 output_dir = os.path.join(current_dir, output_folder)
 if (not os.path.exists(output_dir)):
     os.mkdir(output_dir)
+
+output_container = {
+
+}
 
 connection = psycopg2.connect(database="ncsc",
                               host="127.0.0.1",
@@ -91,19 +93,15 @@ def process_data_and_upsert(records: list[dict]) -> None:
             # The first tag in the list of tags will be chosen as the name of the record file
             file_name = tags[0]
 
-            output_file = f'{output_dir}\\{file_name}.txt'
-            if (not os.path.exists(output_file)):
-                with open(output_file, mode='a') as record_file:
-                    record_file.write("$TTL 1D\n@       IN      SOA     spoof.safegate.vn. safegate.vn. (\n                        2023011101      ; serial\n                        3H              ; refresh\n                        1H              ; retry\n                        3D              ; expire\n                        1H              ; minimum\n                        )\n@       IN              NS              localhost.\n\n")
+            domain = domain.replace("www.", "")
+            records = [domain,
+                       "www." + domain]
+            if (output_container.get(file_name) is None):
+                output_container[file_name] = []
 
-            with open(output_file, mode='a') as record_file:
-                record_file.write(
-                    f"{domain}      IN             CNAME       canhbao.safegate.vn.\n")
-                record_file.write(
-                    f"www.{domain}      IN             CNAME       canhbao.safegate.vn.\n")
-
-            if (file_name not in output_files):
-                output_files.append(file_name)
+            for record in records:
+                if (record not in output_container[file_name]):
+                    output_container[file_name].append(record)
 
 
 def main(start: int, end: int) -> None:
@@ -146,9 +144,40 @@ if __name__ == "__main__":
             args.append(sys.argv[i+1])
 
     if len(args) == 2:
+        entries = Path(output_dir)
+        for entry in entries.iterdir():
+            if (entry.is_file()):
+                with open(entry, mode="r") as file:
+                    content = file.readlines()
+                    output_container[entry.name.replace(".txt", "")] = []
+                    try:
+                        index = content.index(
+                            '@       IN              NS              localhost.\n')
+                        if (content[index+1] == "\n"):
+                            index += 2
+                    except:
+                        index = 0
+
+                    for domain in content[index:]:
+                        domain = domain.replace(
+                            "      IN             CNAME       canhbao.safegate.vn.\n", "")
+                        output_container[entry.name.replace(
+                            ".txt", "")].append(domain)
+
         main(start=args[0], end=args[1])
-        print(f"Updated these below files:")
-        for file in output_files:
-            print(file)
+
+        for key, value in output_container.items():
+            output_file = f'{output_dir}\\{key}.txt'
+
+            with open(output_file, mode="w") as output:
+                output.write("$TTL 1D\n@       IN      SOA     spoof.safegate.vn. safegate.vn. (\n                        2023011101      ; serial\n                        3H              ; refresh\n                        1H              ; retry\n                        3D              ; expire\n                        1H              ; minimum\n                        )\n@       IN              NS              localhost.\n\n")
+                for item in value:
+                    try:
+                        output.write(
+                            item + "      IN             CNAME       canhbao.safegate.vn.\n")
+                    except:
+                        print("Unicode error while writing domain " +
+                              item + " to file " + output_file + ".")
+
     else:
         print("Please include both starting and ending day!")
