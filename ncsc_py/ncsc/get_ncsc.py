@@ -4,7 +4,6 @@ from datetime import datetime
 import psycopg2
 import sys
 import os
-from pathlib import Path
 
 
 current_dir = os.getcwd()
@@ -27,6 +26,136 @@ conf = {
     "delta": 0,
     "url": "https://openapi.ncsc.gov.vn/phishing/query",
 }
+
+
+def contains_vnmese_char(a_str: str):
+    vnmese_chars = [
+        "Á",
+        "À",
+        "Ã",
+        "Ạ",
+        "Â",
+        "Ấ",
+        "Ầ",
+        "Ẫ",
+        "Ậ",
+        "Ă",
+        "Ắ",
+        "Ằ",
+        "Ẵ",
+        "Ặ",
+        "à",
+        "á",
+        "ạ",
+        "ả",
+        "ã",
+        "â",
+        "ầ",
+        "ấ",
+        "ậ",
+        "ẩ",
+        "ẫ",
+        "ă",
+        "ằ",
+        "ắ",
+        "ặ",
+        "ẳ",
+        "ẵ",
+        "É",
+        "È",
+        "Ẽ",
+        "Ẹ",
+        "Ê",
+        "Ế",
+        "Ề",
+        "Ễ",
+        "Ệ",
+        "è",
+        "é",
+        "ẹ",
+        "ẻ",
+        "ẽ",
+        "ê",
+        "ề",
+        "ế",
+        "ệ",
+        "ể",
+        "ễ",
+        "Í",
+        "Ì",
+        "Ĩ",
+        "Ị",
+        "ì",
+        "í",
+        "ị",
+        "ỉ",
+        "ĩ",
+        "Ó",
+        "Ò",
+        "Õ",
+        "Ọ",
+        "Ô",
+        "Ố",
+        "Ồ",
+        "Ỗ",
+        "Ộ",
+        "Ơ",
+        "Ớ",
+        "Ờ",
+        "Ỡ",
+        "Ợ",
+        "ò",
+        "ó",
+        "ọ",
+        "ỏ",
+        "õ",
+        "ô",
+        "ồ",
+        "ố",
+        "ộ",
+        "ổ",
+        "ỗ",
+        "ơ",
+        "ờ",
+        "ớ",
+        "ợ",
+        "ở",
+        "ỡ",
+        "Ú",
+        "Ù",
+        "Ũ",
+        "Ụ",
+        "Ư",
+        "Ứ",
+        "Ừ",
+        "Ữ",
+        "Ự",
+        "ù",
+        "ú",
+        "ụ",
+        "ủ",
+        "ũ",
+        "ư",
+        "ừ",
+        "ứ",
+        "ử",
+        "ữ",
+        "Ý",
+        "Ỳ",
+        "Ỹ",
+        "Ỵ",
+        "ỳ",
+        "ý",
+        "ỵ",
+        "ỷ",
+        "ỹ",
+        "Đ",
+        "đ",
+    ]
+    for char in a_str:
+        if char in vnmese_chars:
+            return True
+    return False
 
 
 def request_ncsc(delta=conf["delta"]) -> dict | None:
@@ -58,50 +187,69 @@ def process_data_and_upsert(records: list[dict]) -> None:
             .replace("www.", "")
         )
         substrings = url.split("/")
-        if len(substrings) == 1:
-            domain = record.get("domain").replace("www.", "")
-            timestamp = str(datetime.now()).split(".")[0]
-            cur.execute(
-                """INSERT INTO data (
-                            timestamps, 
-                            domain, 
-                            ip, 
-                            tags, 
-                            confident_level, 
-                            verified, 
-                            online, 
-                            data_source, 
-                            created_at, 
-                            last_updated
-                            ) 
-                            VALUES (%s, %s, %s, %s, %s,%s, %s, %s, %s, %s) 
-                            ON CONFLICT (domain) DO NOTHING""",
-                (
-                    timestamp,
-                    domain,
-                    record.get("ip"),
-                    record.get("tags"),
-                    record.get("confident_level"),
-                    record.get("verified"),
-                    record.get("online"),
-                    record.get("data_source"),
-                    record.get("created_at"),
-                    record.get("last_updated"),
-                ),
-            )
-            connection.commit()
-            try:
-                # The first element in the "tags" list will be chosen as the output file name
-                file_name = record.get("tags")[0]
-            except:
-                # There are times when tags is an empty list
-                file_name = "no_name"
-            if output_container.get(file_name) is None:
-                output_container[file_name] = []
+        try:
+            substrings.remove("")
+        except:
+            pass
 
-            if domain not in output_container[file_name]:
-                output_container[file_name].append(domain)
-                output_container[file_name].append("www." + domain)
+        if (
+            len(substrings) == 1
+        ):  # if an url has more than 2 levels, don't append it to record file
+            domain = record.get("domain").replace("www.", "")
+
+            domain_substrings = domain.split(".")
+            not_ipv4 = False
+            if len(domain_substrings) == 4:
+                for char in domain:
+                    if char.isalpha():
+                        not_ipv4 = True
+                        break
+            else:
+                not_ipv4 = True
+
+            if not_ipv4 and (not contains_vnmese_char(domain)):
+                timestamp = str(datetime.now()).split(".")[0]
+                cur.execute(
+                    """INSERT INTO data (
+                                timestamps, 
+                                domain, 
+                                ip, 
+                                tags, 
+                                confident_level, 
+                                verified, 
+                                online, 
+                                data_source, 
+                                created_at, 
+                                last_updated
+                                ) 
+                                VALUES (%s, %s, %s, %s, %s,%s, %s, %s, %s, %s) 
+                                ON CONFLICT (domain) DO NOTHING""",
+                    (
+                        timestamp,
+                        domain,
+                        record.get("ip"),
+                        record.get("tags"),
+                        record.get("confident_level"),
+                        record.get("verified"),
+                        record.get("online"),
+                        record.get("data_source"),
+                        record.get("created_at"),
+                        record.get("last_updated"),
+                    ),
+                )
+                connection.commit()
+                try:
+                    # The first element in the "tags" list will be chosen as the output file name
+                    file_name = record.get("tags")[0]
+                except:
+                    # There are times when tags is an empty list
+                    file_name = "no_name"
+                if output_container.get(file_name) is None:
+                    output_container[file_name] = []
+
+                if domain not in output_container[file_name]:
+                    output_container[file_name].append(domain)
+                    output_container[file_name].append("www." + domain)
 
 
 def main(start: int, end: int) -> None:
