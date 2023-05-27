@@ -152,7 +152,7 @@ def refine_data(content: str) -> None:
     content = content[index:]
     for i in range(len(content)):
         # process input
-        content[i] = content[i].replace("       300           IN             A       116.101.122.171\n","").replace("       300           IN             A       116.101.122.171", "").replace(" ","")
+        content[i] = content[i].replace("       300           IN             A       116.101.122.171\n","").replace("       300           IN             A       116.101.122.171", "").replace(" ","").replace("\n", "")
         temp_value = content[i].replace("www.", "")
 
         # check whether it's an ipv4 or not
@@ -164,7 +164,7 @@ def refine_data(content: str) -> None:
         else:
             ipv4 = False
 
-        if (not ipv4) and (not contains_vnmese_char(temp_value)) and (content[i] not in output_container) :
+        if (not ipv4) and (not contains_vnmese_char(temp_value)) and ("https://" not in temp_value) and ("http://" not in temp_value) and ("Http://" not in temp_value) and (content[i] not in output_container):
             output_container.append(content[i])
 
 
@@ -178,14 +178,16 @@ if __name__ == "__main__":
                 refine_data(content)
                 
                 with open(f"{output_folder}\\refined_data.txt", mode="w") as output:
-                    output.write(
-                                "$TTL 1D\n@       IN      SOA     spoof.safegate.vn. safegate.vn. (\n                        2023011101      ; serial\n                        3H              ; refresh\n                        1H              ; retry\n                        3D              ; expire\n                        1H              ; minimum\n                        )\n@       IN              NS              localhost.\n\n"
-                            )
-                    for item in output_container:
-                        output.write(
-                                        item
-                                        + "       300           IN             A       116.101.122.171\n"
-                                    )
+                    # output.write(
+                    #             "$TTL 1D\n@       IN      SOA     spoof.safegate.vn. safegate.vn. (\n                        2023011101      ; serial\n                        3H              ; refresh\n                        1H              ; retry\n                        3D              ; expire\n                        1H              ; minimum\n                        )\n@       IN              NS              localhost.\n\n"
+                    #         )
+                    output.write(output_container[0])
+                    for item in output_container[1:]:
+                        # output.write(
+                        #                 item
+                        #                 + "       300           IN             A       116.101.122.171\n"
+                        #             )
+                        output.write("\n" + item)
     
 
     
